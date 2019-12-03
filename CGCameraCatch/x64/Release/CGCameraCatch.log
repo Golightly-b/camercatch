@@ -1,7 +1,8 @@
 ﻿  CGCameraCatch.cpp
-CGCameraCatch.cpp(92): warning C4018: “<”: 有符号/无符号不匹配
-CGCameraCatch.cpp(119): warning C4018: “<”: 有符号/无符号不匹配
-CGCameraCatch.cpp(150): warning C4018: “<”: 有符号/无符号不匹配
+CGCameraCatch.cpp(82): warning C4018: “<”: 有符号/无符号不匹配
+CGCameraCatch.cpp(105): warning C4018: “<”: 有符号/无符号不匹配
+CGCameraCatch.cpp(126): warning C4018: “<”: 有符号/无符号不匹配
+CGCameraCatch.cpp(139): warning C4018: “<”: 有符号/无符号不匹配
   LINK : 已指定 /LTCG，但不需要生成代码；从链接命令行中移除 /LTCG 以提高链接器性能
-  CGCameraCatch.vcxproj -> G:\FFMPEG\CGCameraCatch\CGCameraCatch\CGCameraCatch\x64\Release\CGCameraCatch.exe
-  CGCameraCatch.vcxproj -> G:\FFMPEG\CGCameraCatch\CGCameraCatch\CGCameraCatch\x64\Release\CGCameraCatch.pdb (Full PDB)
+  CGCameraCatch.vcxproj -> G:\Git\workplace\CGCameraCatch\x64\Release\CGCameraCatch.exe
+  CGCameraCatch.vcxproj -> G:\Git\workplace\CGCameraCatch\x64\Release\CGCameraCatch.pdb (Full PDB)

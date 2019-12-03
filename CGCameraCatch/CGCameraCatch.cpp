@@ -1,128 +1,33 @@
-// CGCameraCatch.cpp : 定义控制台应用程序的入口点。
-//
-/* Copyright [c] 2018-2028 By www.chungen90.com Allrights Reserved 
-   This file give a simple example of getting camera video form 
-   PC.   Any questions, you can join QQ group for
-   help, QQ   Group number:127903734 or 766718184.
+
+/* Copyright [c] 2017-2027 By Gang.Wang Allrights Reserved
+This file give a simple example of how to get camera video form
+PC . Any questions, you can join QQ group for help, QQ
+Group number:127903734.
 */
 #include "stdafx.h"
-#include <string>
-#include <memory>
-#include <thread>
-#include <iostream>
-#include <iostream>
-using namespace std;
 #include "pch.h"
+#include <string>
+#include <iostream>
+#include <thread>
+#include <memory>
+using namespace std;
+AVFormatContext * context = nullptr;
+AVFormatContext* outputContext;
+int64_t  lastPts = 0;
+int64_t  lastDts = 0;
+int64_t lastFrameRealtime = 0;
 
-AVFormatContext *inputContext = nullptr;
-AVFormatContext * outputContext;
-int64_t lastReadPacktTime ;
-int64_t packetCount = 0;
-static int interrupt_cb(void *ctx)
+int64_t firstPts = AV_NOPTS_VALUE;
+int64_t startTime = 0;
+
+AVCodecContext*	pOutPutEncContext = NULL;
+#define SrcWidth 1920
+#define SrcHeight 1080
+#define DstWidth 640
+#define DstHeight 480
+int interrupt_cb(void *ctx)
 {
-	int  timeout  = 3;
-	if(av_gettime() - lastReadPacktTime > timeout *1000 *1000)
-	{
-		return -1;
-	}
 	return 0;
-}
-
-int OpenInput(string inputUrl)
-{
-	inputContext = avformat_alloc_context();	
-	lastReadPacktTime = av_gettime();
-	inputContext->interrupt_callback.callback = interrupt_cb;
-	 AVInputFormat *ifmt = av_find_input_format("dshow");
-	 AVDictionary *format_opts =  nullptr;
-	 av_dict_set_int(&format_opts, "rtbufsize", 18432000  , 0);
-
-	int ret = avformat_open_input(&inputContext, inputUrl.c_str(), ifmt,&format_opts);
-	if(ret < 0)
-	{
-		av_log(NULL, AV_LOG_ERROR, "Input file open input failed\n");
-		return  ret;
-	}
-	ret = avformat_find_stream_info(inputContext,nullptr);
-	if(ret < 0)
-	{
-		av_log(NULL, AV_LOG_ERROR, "Find input file stream inform failed\n");
-	}
-	else
-	{
-		av_log(NULL, AV_LOG_FATAL, "Open input file  %s success\n",inputUrl.c_str());
-	}
-	return ret;
-}
-
-
-shared_ptr<AVPacket> ReadPacketFromSource()
-{
-	shared_ptr<AVPacket> packet(static_cast<AVPacket*>(av_malloc(sizeof(AVPacket))), [&](AVPacket *p) { av_packet_free(&p); av_freep(&p);});
-	av_init_packet(packet.get());
-	lastReadPacktTime = av_gettime();
-	int ret = av_read_frame(inputContext, packet.get());
-	if(ret >= 0)
-	{
-		return packet;
-	}
-	else
-	{
-		return nullptr;
-	}
-}
-
-int OpenOutput(string outUrl,AVCodecContext *encodeCodec)
-{
-
-	int ret  = avformat_alloc_output_context2(&outputContext, nullptr, "flv", outUrl.c_str());
-	if(ret < 0)
-	{
-		av_log(NULL, AV_LOG_ERROR, "open output context failed\n");
-		goto Error;
-	}
-
-	ret = avio_open2(&outputContext->pb, outUrl.c_str(), AVIO_FLAG_WRITE,nullptr, nullptr);	
-	if(ret < 0)
-	{
-		av_log(NULL, AV_LOG_ERROR, "open avio failed");
-		goto Error;
-	}
-
-	for(int i = 0; i < inputContext->nb_streams; i++)
-	{
-		if(inputContext->streams[i]->codec->codec_type == AVMediaType::AVMEDIA_TYPE_AUDIO)
-		{
-			continue;
-		}
-		AVStream * stream = avformat_new_stream(outputContext, encodeCodec->codec);				
-		ret = avcodec_copy_context(stream->codec, encodeCodec);	
-		if(ret < 0)
-		{
-			av_log(NULL, AV_LOG_ERROR, "copy coddec context failed");
-			goto Error;
-		}
-	}
-
-	ret = avformat_write_header(outputContext, nullptr);
-	if(ret < 0)
-	{
-		av_log(NULL, AV_LOG_ERROR, "format write header failed");
-		goto Error;
-	}
-
-	av_log(NULL, AV_LOG_FATAL, " Open output file success %s\n",outUrl.c_str());			
-	return ret ;
-Error:
-	if(outputContext)
-	{
-		for(int i = 0; i < outputContext->nb_streams; i++)
-		{
-			avcodec_close(outputContext->streams[i]->codec);
-		}
-		avformat_close_input(&outputContext);
-	}
-	return ret ;
 }
 
 void Init()
@@ -134,20 +39,104 @@ void Init()
 	av_log_set_level(AV_LOG_ERROR);
 }
 
+int OpenInput(char *fileName)
+{
+	context = avformat_alloc_context();
+	context->interrupt_callback.callback = interrupt_cb;
+	AVInputFormat *ifmt = av_find_input_format("dshow");
+	AVDictionary *format_opts = nullptr;
+	av_dict_set_int(&format_opts, "rtbufsize", 73728000, 0);
+	int ret = avformat_open_input(&context, fileName, ifmt, &format_opts);
+	if (ret < 0)
+	{
+		return  ret;
+	}
+	ret = avformat_find_stream_info(context, nullptr);
+	av_dump_format(context, 0, fileName, 0);
+	if (ret >= 0)
+	{
+		cout << "open input stream successfully" << endl;
+	}
+	return ret;
+}
+
+std::shared_ptr<AVPacket> ReadPacketFromSource()
+{
+	std::shared_ptr<AVPacket> packet(static_cast<AVPacket*>(av_malloc(sizeof(AVPacket))), [&](AVPacket *p) { av_packet_free(&p); av_freep(&p); });
+	av_init_packet(packet.get());
+	lastFrameRealtime = av_gettime();
+	int ret = av_read_frame(context, packet.get());
+	if (ret >= 0)
+	{
+		return packet;
+	}
+	else
+	{
+		return nullptr;
+	}
+}
 void CloseInput()
 {
-	if(inputContext != nullptr)
+	if (context != nullptr)
 	{
-		avformat_close_input(&inputContext);
+		for (int i = 0; i < context->nb_streams; i++)
+		{
+			AVCodecContext *codecContext = context->streams[i]->codec;
+			avcodec_close(codecContext);
+		}
+		avformat_close_input(&context);
 	}
+}
+
+int OpenOutput(char *fileName)
+{
+	int ret = 0;
+	ret = avformat_alloc_output_context2(&outputContext, nullptr, "flv", fileName);
+	if (ret < 0)
+	{
+		goto Error;
+	}
+	ret = avio_open2(&outputContext->pb, fileName, AVIO_FLAG_READ_WRITE, nullptr, nullptr);
+	if (ret < 0)
+	{
+		goto Error;
+	}
+
+	for (int i = 0; i < context->nb_streams; i++)
+	{
+		AVStream * stream = avformat_new_stream(outputContext, pOutPutEncContext->codec);
+		stream->codec = pOutPutEncContext;
+		if (ret < 0)
+		{
+			goto Error;
+		}
+	}
+	av_dump_format(outputContext, 0, fileName, 1);
+	ret = avformat_write_header(outputContext, nullptr);
+	if (ret < 0)
+	{
+		goto Error;
+	}
+	if (ret >= 0)
+		cout << "open output stream successfully" << endl;
+	return ret;
+Error:
+	if (outputContext)
+	{
+		for (int i = 0; i < outputContext->nb_streams; i++)
+		{
+			avcodec_close(outputContext->streams[i]->codec);
+		}
+		avformat_close_input(&outputContext);
+	}
+	return ret;
 }
 
 void CloseOutput()
 {
-	if(outputContext != nullptr)
+	if (outputContext != nullptr)
 	{
-		int ret = av_write_trailer(outputContext);
-		for(int i = 0 ; i < outputContext->nb_streams; i++)
+		for (int i = 0; i < outputContext->nb_streams; i++)
 		{
 			AVCodecContext *codecContext = outputContext->streams[i]->codec;
 			avcodec_close(codecContext);
@@ -156,130 +145,122 @@ void CloseOutput()
 	}
 }
 
-int WritePacket(shared_ptr<AVPacket> packet)
+int InitOutputCodec(AVCodecContext** pOutPutEncContext, int iWidth, int iHeight)
 {
-	auto inputStream = inputContext->streams[packet->stream_index];
-	auto outputStream = outputContext->streams[packet->stream_index];				
-	return av_interleaved_write_frame(outputContext, packet.get());
+	AVCodec *  pH264Codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+	if (NULL == pH264Codec)
+	{
+		printf("%s", "avcodec_find_encoder failed");
+		return  0;
+	}
+	*pOutPutEncContext = avcodec_alloc_context3(pH264Codec);
+	(*pOutPutEncContext)->codec_id = pH264Codec->id;
+	(*pOutPutEncContext)->time_base.num = 0;
+	(*pOutPutEncContext)->time_base.den = 1;
+	(*pOutPutEncContext)->pix_fmt = AV_PIX_FMT_YUV420P;
+	(*pOutPutEncContext)->width = iWidth;
+	(*pOutPutEncContext)->height = iHeight;
+	(*pOutPutEncContext)->has_b_frames = 0;
+	(*pOutPutEncContext)->max_b_frames = 0;
+
+	AVDictionary *options = nullptr;
+	(*pOutPutEncContext)->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+	int ret = avcodec_open2(*pOutPutEncContext, pH264Codec, &options);
+	if (ret < 0)
+	{
+		printf("%s", "open codec failed");
+		return  ret;
+	}
+	return 1;
 }
 
-int InitDecodeContext(AVStream *inputStream)
-{	
-	auto codecId = inputStream->codec->codec_id;
-	auto codec = avcodec_find_decoder(codecId);
-	if (!codec)
+int YUV422To420(uint8_t *yuv422, uint8_t *yuv420, int width, int height)
+{
+	int s = width * height;
+	int i, j, k = 0;
+	for (i = 0; i < s; i++)
 	{
-		return -1;
+		yuv420[i] = yuv422[i * 2];
 	}
 
-	int ret = avcodec_open2(inputStream->codec, codec, NULL);
-	return ret;
-
-}
-
-int initEncoderCodec(AVStream* inputStream,AVCodecContext **encodeContext)
+	for (i = 0; i < height; i++)
 	{
-		AVCodec *  picCodec;
-		
-		picCodec = avcodec_find_encoder(AV_CODEC_ID_H264);		
-		(*encodeContext) = avcodec_alloc_context3(picCodec);
-	
-		(*encodeContext)->codec_id = picCodec->id;
-		(*encodeContext)->time_base.num = inputStream->codec->time_base.num;
-		(*encodeContext)->time_base.den = inputStream->codec->time_base.den;
-		(*encodeContext)->pix_fmt =  *picCodec->pix_fmts;
-		(*encodeContext)->width = inputStream->codec->width;
-		(*encodeContext)->height =inputStream->codec->height;
-		(*encodeContext)->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-		int ret = avcodec_open2((*encodeContext), picCodec, nullptr);
-		if (ret < 0)
+		if (i % 2 != 0) continue;
+		for (j = 0; j <(width / 2); j++)
 		{
-			std::cout<<"open video codec failed"<<endl;
-			return  ret;
+			if (4 * j + 1 > 2 * width) break;
+			yuv420[s + k * 2 * width / 4 + j] = yuv422[i * 2 * width + 4 * j + 1];
 		}
-			return 1;
+		k++;
 	}
 
-bool Decode(AVStream* inputStream,AVPacket* packet, AVFrame *frame)
-{
-	int gotFrame = 0;
-	auto hr = avcodec_decode_video2(inputStream->codec, frame, &gotFrame, packet);
-	if (hr >= 0 && gotFrame != 0)
+	k = 0;
+
+	for (i = 0; i < height; i++)
 	{
-		return true;
+		if (i % 2 == 0) continue;
+		for (j = 0; j < width / 2; j++)
+		{
+			if (4 * j + 3 > 2 * width) break;
+			yuv420[s + s / 4 + k * 2 * width / 4 + j] = yuv422[i * 2 * width + 4 * j + 3];
+		}
+		k++;
 	}
-	return false;
-}
-
-
-std::shared_ptr<AVPacket> Encode(AVCodecContext *encodeContext,AVFrame * frame)
-{
-	int gotOutput = 0;
-	std::shared_ptr<AVPacket> pkt(static_cast<AVPacket*>(av_malloc(sizeof(AVPacket))), [&](AVPacket *p) { av_packet_free(&p); av_freep(&p); });
-	av_init_packet(pkt.get());
-	pkt->data = NULL;
-	pkt->size = 0;
-	frame->pts = frame->pkt_dts = frame->pkt_pts = 40 * packetCount;
-	int ret = avcodec_encode_video2(encodeContext, pkt.get(), frame, &gotOutput);
-	if (ret >= 0 && gotOutput)
-	{
-		return pkt;
-	}
-	else
-	{
-		return nullptr;
-	}
-}
-
-
+	return 1;
+};
 int _tmain(int argc, _TCHAR* argv[])
 {
+	string fileInput = "video=Integrated Webcam";
+	string fileOutput = "rtmp://192.168.1.117/live/stream0";
+
 	Init();
-	int ret = OpenInput("video=Integrated Webcam");
-	
-	if(ret <0) goto Error;
-
-	AVCodecContext *encodeContext = nullptr;
-	InitDecodeContext(inputContext->streams[0]);
-	AVFrame *videoFrame = av_frame_alloc();
-	initEncoderCodec(inputContext->streams[0],&encodeContext);
-
-	if(ret >= 0)
+	if (OpenInput((char *)fileInput.c_str()) < 0)
 	{
-		ret = OpenOutput("rtmp://192.168.1.117/live/stream0",encodeContext); 
+		cout << "Open file Input failed!" << endl;
+		this_thread::sleep_for(chrono::seconds(10));
+		return 0;
 	}
-	if(ret <0) goto Error;
-	 while(true)
-	 {
+	InitOutputCodec(&pOutPutEncContext, DstWidth, DstHeight);
+	if (OpenOutput((char *)fileOutput.c_str()) < 0)
+	{
+		cout << "Open file Output failed!" << endl;
+		this_thread::sleep_for(chrono::seconds(10));
+		return 0;
+	}
+	auto timebase = av_q2d(context->streams[0]->time_base);
+	int count = 0;
+	auto in_stream = context->streams[0];
+	auto out_stream = outputContext->streams[0];
+	int iGetPic = 0;
+	uint8_t *yuv420Buffer = (uint8_t *)malloc(DstWidth * DstHeight * 3 / 2);
+	yuv420Buffer[DstWidth * DstHeight * 3 / 2 - 1] = 0;
+	while (true)
+	{
 		auto packet = ReadPacketFromSource();
-		if(packet && packet->stream_index == 0)
+		if (packet)
 		{
-			if(Decode(inputContext->streams[0],packet.get(),videoFrame))
-			{
-				auto packetEncode = Encode(encodeContext,videoFrame);
-				if(packetEncode)
-				{
-					ret = WritePacket(packetEncode);
-					cout <<"ret:" << ret<<endl;
-				}
+			auto pSwsFrame = av_frame_alloc();
+			int numBytes = av_image_get_buffer_size(AV_PIX_FMT_YUYV422, DstWidth, DstHeight, 1);
+			YUV422To420(packet->data, yuv420Buffer, DstWidth, DstHeight);
+			av_image_fill_arrays((pSwsFrame)->data, (pSwsFrame)->linesize, yuv420Buffer, AV_PIX_FMT_YUV420P, DstWidth, DstHeight, 1);
+			AVPacket *pTmpPkt = (AVPacket *)av_malloc(sizeof(AVPacket));
+			av_init_packet(pTmpPkt);
+			pTmpPkt->data = NULL;
+			pTmpPkt->size = 0;
 
+			int iRet = avcodec_encode_video2(pOutPutEncContext, pTmpPkt, pSwsFrame, &iGetPic);
+			if (iRet >= 0 && iGetPic)
+			{
+				int ret = av_write_frame(outputContext, pTmpPkt);
 			}
-						
+			av_frame_free(&pSwsFrame);
+			av_packet_free(&pTmpPkt);
 		}
-		
-	 }
-	 cout <<"Get Picture End "<<endl;
-	 av_frame_free(&videoFrame);
-	 avcodec_close(encodeContext);
-	Error:
+	}
 	CloseInput();
 	CloseOutput();
-	
-	while(true)
-	{
-		this_thread::sleep_for(chrono::seconds(100));
-	}
+	cout << "Transcode file end!" << endl;
+	this_thread::sleep_for(chrono::hours(10));
 	return 0;
 }
-
 
